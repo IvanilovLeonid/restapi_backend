@@ -1,0 +1,140 @@
+basePath: /
+definitions:
+  models.Task:
+    properties:
+      code:
+        type: string
+      compilator:
+        type: string
+      result:
+        type: string
+      status:
+        description: '"in_progress" | "ready"'
+        type: string
+      task_id:
+        type: string
+    type: object
+  types.GetResultHandlerResponse:
+    properties:
+      result:
+        type: string
+    type: object
+  types.GetStatusHandlerResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  types.PostHandlerResponse:
+    properties:
+      task_id:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: This is a simple API for managing tasks with status and result tracking.
+  title: Task Manager API
+  version: "1.0"
+paths:
+  /result/{task_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the result of a task by its ID. If the task is still
+        in progress, returns a conflict.
+      parameters:
+      - description: Task ID
+        in: path
+        name: task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GetResultHandlerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Task not found
+          schema:
+            type: string
+        "409":
+          description: Task in progress
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Get task result
+      tags:
+      - Task
+  /status/{task_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the status of a task by its ID.
+      parameters:
+      - description: Task ID
+        in: path
+        name: task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GetStatusHandlerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Task not found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Get task status
+      tags:
+      - Task
+  /task:
+    post:
+      consumes:
+      - application/json
+      description: Creates a task with an empty result and status "in_progress".
+      parameters:
+      - description: Task data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.Task'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.PostHandlerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Create a new task
+      tags:
+      - Task
+swagger: "2.0"
