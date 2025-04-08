@@ -1,20 +1,29 @@
 package http
 
 import (
+	"encoding/json"
 	"github.com/go-chi/chi"
 	"github.com/google/uuid"
 	httpSwagger "github.com/swaggo/http-swagger"
+	"hw1/api/http/session"
 	"hw1/api/http/types"
 	"hw1/usecases"
+	"hw1/usecases/service"
 	"net/http"
 )
 
 type Server struct {
-	service usecases.Object
+	service    usecases.Object
+	sessionMgr *session.Manager
+	userDB     *service.User
 }
 
-func newServer(service usecases.Object) *Server {
-	return &Server{service: service}
+func newServer(service usecases.Object, sessionMgr *session.Manager, userDB *service.User) *Server {
+	return &Server{
+		service:    service,
+		sessionMgr: sessionMgr,
+		userDB:     userDB,
+	}
 }
 
 // postHandler creates a new task.
@@ -62,6 +71,63 @@ func (db *Server) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	types.ProcessErrors(w, err, types.GetStatusHandlerResponse{Status: task.Status})
 }
 
+func (s *Server) RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+	if err := s.userDB.Register(req.Username, req.Password); err != nil {
+		http.Error(w, "User already exists", http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	user, err := s.userDB.Authenticate(req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	session, _ := s.sessionMgr.SessionStart(w, r)
+	session.Set("user_id", user.Id)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := s.sessionMgr.SessionStart(w, r)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, err = session.Get("user_id")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // getResultHandler retrieves the result of a task.
 // @Summary Get task result
 // @Description Retrieves the result of a task by its ID. If the task is still in progress, returns a conflict.
@@ -93,17 +159,17 @@ func (db *Server) getResultHandler(w http.ResponseWriter, r *http.Request) {
 	types.ProcessErrors(w, err, types.GetResultHandlerResponse{Result: task.Result})
 }
 
-func CreateAndRunServer(service usecases.Object, addr string) error {
-	server := newServer(service)
+func CreateAndRunServer(service usecases.Object, addr string, sessionMgr *session.Manager, userDB *service.User) error {
+	server := newServer(service, sessionMgr, userDB)
 
 	r := chi.NewRouter()
 
-	r.Post("/task", server.postHandler)
+	r.Post("/register", server.RegisterHandler)
+	r.Post("/login", server.LoginHandler)
 
-	r.Get("/status/{task_id}", server.getStatusHandler)
-
-	r.Get("/result/{task_id}", server.getResultHandler)
-
+	r.With(server.AuthMiddleware).Post("/task", server.postHandler)
+	r.With(server.AuthMiddleware).Get("/status/{task_id}", server.getStatusHandler)
+	r.With(server.AuthMiddleware).Get("/result/{task_id}", server.getResultHandler)
 	r.Get("/swagger/*", httpSwagger.Handler())
 
 	httpServer := &http.Server{

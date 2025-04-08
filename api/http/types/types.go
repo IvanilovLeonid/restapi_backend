@@ -20,6 +20,10 @@ type PostHandlerResponse struct {
 	TaskID string `json:"task_id"`
 }
 
+type PostLoginHandlerResponse struct {
+	SessionID string `json:"session_id"`
+}
+
 func CreatePostHandlerRequest(r *http.Request) (*models.Task, error) {
 	var req models.Task
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
